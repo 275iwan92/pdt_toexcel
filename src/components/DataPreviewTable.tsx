@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Filter,
@@ -7,12 +7,18 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Eye,
   RotateCcw,
   FileSpreadsheet,
   FolderSync,
+  FileText,
+  Download,
+  ArrowRight,
 } from 'lucide-react';
 import { FakturPajakData, cleanNpwp } from '../utils/fakturParser';
+import { generateDetailCsv, generateRekapCsv, downloadCsv } from '../utils/csvExporter';
 
 interface DataPreviewTableProps {
   invoices: FakturPajakData[];
@@ -34,6 +40,12 @@ export const DataPreviewTable: React.FC<DataPreviewTableProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(100);
+  const [jumpInput, setJumpInput] = useState<string>('1');
+
+  // Keep jump input in sync with current page
+  useEffect(() => {
+    setJumpInput(String(page));
+  }, [page]);
 
   const countBeli = useMemo(() => invoices.filter((i) => i.category === 'beli').length, [invoices]);
   const countJual = useMemo(() => invoices.filter((i) => i.category === 'jual').length, [invoices]);
@@ -91,9 +103,12 @@ export const DataPreviewTable: React.FC<DataPreviewTableProps> = ({
     let ppnbm = 0;
 
     for (const inv of filteredInvoices) {
-      const hj = inv.hargaJualTotal || 0;
+      const itemsHjSum = inv.items && inv.items.length > 0
+        ? inv.items.reduce((s, it) => s + (it.hargaJual || it.qty * it.hargaSatuan), 0)
+        : 0;
+      const hj = (inv.hargaJualTotal && inv.hargaJualTotal > 1) ? inv.hargaJualTotal : (itemsHjSum || inv.dpp || 0);
       const pot = inv.potonganHargaTotal || 0;
-      const hjNett = inv.hargaJualNett || (hj - pot);
+      const hjNett = (inv.hargaJualNett && inv.hargaJualNett > 1) ? inv.hargaJualNett : (hj - pot);
       hargaJual += hj;
       potongan += pot;
       hargaJualNett += hjNett;
@@ -193,6 +208,29 @@ export const DataPreviewTable: React.FC<DataPreviewTableProps> = ({
   const formatIDR = (n: number | undefined) => {
     if (n === undefined || n === null) return '0.00';
     return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  };
+
+  const handleJump = () => {
+    const parsed = parseInt(jumpInput, 10);
+    if (!isNaN(parsed)) {
+      const target = Math.max(1, Math.min(totalPages, parsed));
+      setPage(target);
+      setJumpInput(String(target));
+    } else {
+      setJumpInput(String(page));
+    }
+  };
+
+  const handleExportCsv = () => {
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const catLabel = activeCategory === 'all' ? 'semua' : activeCategory;
+    if (activeSheet === 'detail') {
+      const csv = generateDetailCsv(filteredInvoices);
+      downloadCsv(csv, `faktur_${catLabel}_detail_barang_${timestamp}.csv`);
+    } else {
+      const csv = generateRekapCsv(filteredInvoices, activeCategory === 'jual' ? 'jual' : 'beli');
+      downloadCsv(csv, `faktur_${catLabel}_rekap_faktur_${timestamp}.csv`);
+    }
   };
 
   if (invoices.length === 0) {
@@ -321,6 +359,17 @@ export const DataPreviewTable: React.FC<DataPreviewTableProps> = ({
               className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 shadow-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
             />
           </div>
+
+          {/* Export CSV Button (Ultra fast & light for large datasets) */}
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-300 rounded-lg transition-colors cursor-pointer shadow-2xs"
+            title="Download sheet aktif langsung dalam format CSV (Sangat cepat & hemat memori untuk data ratusan ribu baris)"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-700" />
+            <span>Ekspor CSV ({activeSheet === 'detail' ? 'Detail' : 'Rekap'})</span>
+          </button>
 
           {/* Reset Button */}
           {onReset && (
@@ -599,7 +648,7 @@ export const DataPreviewTable: React.FC<DataPreviewTableProps> = ({
       <div className="p-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
         <div className="flex items-center gap-3">
           <span>
-            Menampilkan <strong className="text-slate-800 font-semibold">{totalRows === 0 ? 0 : (page - 1) * pageSize + 1} - {Math.min(page * pageSize, totalRows)}</strong> dari <strong className="text-slate-800 font-semibold">{totalRows}</strong> baris data
+            Menampilkan <strong className="text-slate-800 font-semibold">{totalRows === 0 ? 0 : (page - 1) * pageSize + 1} - {Math.min(page * pageSize, totalRows)}</strong> dari <strong className="text-slate-800 font-semibold">{totalRows.toLocaleString('id-ID')}</strong> baris data
           </span>
           <div className="flex items-center gap-1.5 ml-2 border-l border-slate-200 pl-3">
             <span className="text-slate-400">Tampilkan:</span>
@@ -613,31 +662,85 @@ export const DataPreviewTable: React.FC<DataPreviewTableProps> = ({
             >
               <option value={20}>20 baris</option>
               <option value={50}>50 baris</option>
-              <option value={100}>100 baris (Lihat Semua 90)</option>
+              <option value={100}>100 baris</option>
+              <option value={250}>250 baris</option>
               <option value={500}>500 baris</option>
+              <option value={1000}>1.000 baris</option>
             </select>
           </div>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 cursor-pointer transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span className="px-2 font-medium">
-            Halaman {page} dari {totalPages}
-          </span>
-          <button
-            type="button"
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 cursor-pointer transition-colors"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
+
+        {/* Navigation & Jump to Page */}
+        <div className="flex items-center flex-wrap gap-2">
+          {/* First & Prev buttons */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage(1)}
+              title="Halaman Pertama (1)"
+              className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 cursor-pointer transition-colors"
+            >
+              <ChevronsLeft className="w-4 h-4 text-slate-600" />
+            </button>
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              title="Halaman Sebelumnya"
+              className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 cursor-pointer transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4 text-slate-600" />
+            </button>
+          </div>
+
+          {/* Jump to Page Input Box */}
+          <div className="flex items-center gap-1.5 px-2 py-1 bg-white border border-slate-200 rounded-lg shadow-2xs text-xs">
+            <span className="text-slate-500 font-medium">Halaman</span>
+            <input
+              type="number"
+              min={1}
+              max={totalPages}
+              value={jumpInput}
+              onChange={(e) => setJumpInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleJump();
+              }}
+              className="w-16 px-1.5 py-0.5 text-center bg-slate-50 border border-slate-300 rounded font-bold text-slate-900 text-xs focus:ring-1 focus:ring-emerald-500 focus:bg-white"
+            />
+            <span className="text-slate-500">
+              dari <strong className="text-slate-800">{totalPages.toLocaleString('id-ID')}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={handleJump}
+              className="ml-1 px-2.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded font-semibold text-[11px] transition-colors cursor-pointer shadow-2xs"
+            >
+              Lompat
+            </button>
+          </div>
+
+          {/* Next & Last buttons */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              title="Halaman Berikutnya"
+              className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 cursor-pointer transition-colors"
+            >
+              <ChevronRight className="w-4 h-4 text-slate-600" />
+            </button>
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => setPage(totalPages)}
+              title={`Halaman Terakhir (${totalPages})`}
+              className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 cursor-pointer transition-colors"
+            >
+              <ChevronsRight className="w-4 h-4 text-slate-600" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

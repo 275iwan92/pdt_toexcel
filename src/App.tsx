@@ -9,6 +9,7 @@ import { UploadDropzone } from './components/UploadDropzone';
 import { GeneratedFilesCard } from './components/GeneratedFilesCard';
 import { DataPreviewTable } from './components/DataPreviewTable';
 import { InvoiceDetailModal } from './components/InvoiceDetailModal';
+import { PortableDownloadModal } from './components/PortableDownloadModal';
 import { FakturPajakData, parseFakturText } from './utils/fakturParser';
 import { extractTextFromPdf } from './utils/pdfExtractor';
 import { getSampleInvoices } from './data/sampleInvoices';
@@ -22,6 +23,8 @@ import {
   Info,
   Layers,
   RotateCcw,
+  Laptop,
+  Download,
 } from 'lucide-react';
 
 export default function App() {
@@ -31,6 +34,7 @@ export default function App() {
   const [selectedInvoice, setSelectedInvoice] = useState<FakturPajakData | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showPortableModal, setShowPortableModal] = useState(false);
 
   // Summary statistics
   const stats = useMemo(() => {
@@ -176,6 +180,7 @@ export default function App() {
         onLoadSamples={handleLoadSamples}
         onClearAll={() => setShowResetConfirm(true)}
         totalInvoices={invoices.length}
+        onOpenPortableModal={() => setShowPortableModal(true)}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -192,6 +197,33 @@ export default function App() {
             </button>
           </div>
         )}
+
+        {/* Portable Windows Zero-Install Deployment Card */}
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 rounded-2xl p-4 sm:p-5 text-white shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border border-slate-700">
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 font-bold text-xs border border-emerald-500/30 flex items-center gap-1.5">
+                <Laptop className="w-4 h-4 text-emerald-400" />
+                <span>Aplikasi Portable Siap Deploy ke Klien</span>
+              </span>
+              <span className="text-[11px] text-slate-300 font-medium bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                Win XP (SP3) / Win 7 / Win 8 / Win 10 / Win 11
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+              Dapat dideploy langsung di komputer klien atau akuntansi kantor tanpa perlu install software (<span className="text-emerald-300 font-semibold">Zero Install & 100% Offline</span>). Data faktur pajak aman diproses lokal, tidak butuh hak administrator, dan bisa langsung dijalankan dari USB flashdisk.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowPortableModal(true)}
+            className="shrink-0 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <Download className="w-4 h-4" />
+            <span>Download App Portable (.zip)</span>
+          </button>
+        </div>
 
         {/* Specification & Output Guidelines Banner */}
         <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs">
@@ -337,6 +369,12 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Portable App Download & Deployment Guide Modal */}
+      <PortableDownloadModal
+        isOpen={showPortableModal}
+        onClose={() => setShowPortableModal(false)}
+      />
 
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-4 mt-12">

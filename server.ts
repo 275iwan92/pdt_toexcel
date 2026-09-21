@@ -1,5 +1,7 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
+import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
@@ -78,6 +80,132 @@ async function startServer() {
   // API health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
+  });
+
+  // Portable Windows App (.zip) download endpoint
+  app.get('/api/download-portable', async (req, res) => {
+    try {
+      const distPath = path.join(process.cwd(), 'dist');
+      const zip = new JSZip();
+
+      // Check if dist exists, add all dist files except server.cjs
+      if (fs.existsSync(distPath)) {
+        const addFolderRecursively = (currentDir: string, zipFolder: JSZip) => {
+          const items = fs.readdirSync(currentDir, { withFileTypes: true });
+          for (const item of items) {
+            const itemPath = path.join(currentDir, item.name);
+            if (item.isDirectory()) {
+              addFolderRecursively(itemPath, zipFolder.folder(item.name)!);
+            } else if (item.isFile()) {
+              if (item.name.startsWith('server.cjs')) continue;
+              zipFolder.file(item.name, fs.readFileSync(itemPath));
+            }
+          }
+        };
+        addFolderRecursively(distPath, zip);
+      } else {
+        const indexPath = path.join(process.cwd(), 'index.html');
+        if (fs.existsSync(indexPath)) {
+          zip.file('index.html', fs.readFileSync(indexPath, 'utf-8'));
+        }
+      }
+
+      const BATCH_LAUNCHER = `@echo off
+chcp 65001 >nul
+title e-Faktur Pajak to Excel Converter (Portable)
+color 0A
+
+echo =====================================================================
+echo   e-Faktur Pajak to Excel Converter - Versi Portable Zero-Install
+echo   Kompatibel: Windows XP / Windows 7 / Windows 8 / Windows 10 / 11
+echo =====================================================================
+echo.
+echo [1/2] Menyiapkan aplikasi offline...
+
+where powershell >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    echo [2/2] Membuka aplikasi di browser (Port 5800)...
+    echo.
+    echo =====================================================================
+    echo   JANGAN TUTUP JENDELA CMD INI SELAMA MENGGUNAKAN APLIKASI.
+    echo   (Jendela ini berfungsi sebagai server lokal aman di PC Anda)
+    echo   Anda dapat meminimalkan (minimize) jendela ini.
+    echo =====================================================================
+    echo.
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$port = 5800; $listener = New-Object System.Net.HttpListener; $listener.Prefixes.Add('http://localhost:' + $port + '/'); try { $listener.Start() } catch { $port = 5801; $listener.Prefixes.Clear(); $listener.Prefixes.Add('http://localhost:' + $port + '/'); $listener.Start() }; Start-Process ('http://localhost:' + $port + '/'); Write-Host ('Aplikasi berhasil berjalan di: http://localhost:' + $port + '/'); while ($listener.IsListening) { $context = $listener.GetContext(); $request = $context.Request; $response = $context.Response; $url = $request.RawUrl.Split('?')[0]; if ($url -eq '/') { $url = '/index.html' }; $filePath = Join-Path $PSScriptRoot $url.TrimStart('/'); if (Test-Path $filePath -PathType Leaf) { $bytes = [IO.File]::ReadAllBytes($filePath); $ext = [IO.Path]::GetExtension($filePath).ToLower(); switch ($ext) { '.html' { $response.ContentType = 'text/html; charset=utf-8' } '.js' { $response.ContentType = 'application/javascript; charset=utf-8' } '.mjs' { $response.ContentType = 'application/javascript; charset=utf-8' } '.css' { $response.ContentType = 'text/css; charset=utf-8' } '.json' { $response.ContentType = 'application/json' } '.svg' { $response.ContentType = 'image/svg+xml' } '.png' { $response.ContentType = 'image/png' } default { $response.ContentType = 'application/octet-stream' } }; $response.ContentLength64 = $bytes.Length; $response.OutputStream.Write($bytes, 0, $bytes.Length); $response.Close() } else { $response.StatusCode = 404; $response.Close() } }"
+    pause
+    exit /b
+)
+
+echo [2/2] Membuka langsung via Browser...
+start "" "%~dp0index.html"
+exit /b
+`;
+
+      const BATCH_CHROME = `@echo off
+title Buka di Google Chrome
+start chrome.exe --allow-file-access-from-files "%~dp0index.html"
+exit
+`;
+
+      const BATCH_EDGE = `@echo off
+title Buka di Microsoft Edge
+start msedge.exe --allow-file-access-from-files "%~dp0index.html"
+exit
+`;
+
+      const BATCH_FIREFOX = `@echo off
+title Buka di Mozilla Firefox
+start firefox.exe "%~dp0index.html"
+exit
+`;
+
+      const PETUNJUK_TXT = `===================================================================
+PETUNJUK PENGGUNAAN e-FAKTUR CONVERTER PORTABLE (OFFLINE)
+Kompatibel: Windows XP (SP3), Windows 7, Windows 8, Windows 10, Windows 11
+===================================================================
+
+1. CARA MENJALANKAN DI WINDOWS 7 / 8 / 10 / 11:
+   - Klik 2x pada file: "Jalankan_Aplikasi.bat"
+   - Browser default Anda (Chrome, Edge, Firefox, Brave) akan otomatis terbuka.
+   - Jangan tutup jendela CMD hitam tersebut selama Anda bekerja (bisa di-minimize).
+
+2. CARA MENJALANKAN DI WINDOWS XP:
+   - Jika menggunakan Mozilla Firefox / Chrome:
+     Klik file "Buka_Langsung_Firefox.bat" atau "Buka_Langsung_Chrome.bat".
+   - Atau langsung klik 2x pada file "index.html".
+
+3. KEUNGGULAN VERSI PORTABLE INI:
+   - 100% OFFLINE: Tidak membutuhkan koneksi internet sama sekali.
+   - ZERO INSTALL: Cukup ekstrak di folder mana pun (Desktop, Drive D, USB Flashdisk).
+   - TIDAK BUTUH HAK ADMIN: Sangat cocok untuk PC kantor/klien yang dikunci oleh IT administrator.
+   - PRIVASI & KERAHASIAAN TERJAMIN: Seluruh proses ekstraksi PDF faktur pajak ke Excel
+     dieksekusi langsung di memori komputer Anda. Tidak ada data yang dikirim ke internet.
+   - Multi-Format Excel & CSV: Dilengkapi 2 Sheet ("Detail Barang" & "Rekap Faktur")
+     sesuai format standar e-Faktur Pajak resmi Indonesia.
+
+===================================================================
+`;
+
+      zip.file('Jalankan_Aplikasi.bat', BATCH_LAUNCHER);
+      zip.file('Buka_Langsung_Chrome.bat', BATCH_CHROME);
+      zip.file('Buka_Langsung_Edge.bat', BATCH_EDGE);
+      zip.file('Buka_Langsung_Firefox.bat', BATCH_FIREFOX);
+      zip.file('PETUNJUK_WINDOWS_XP_7_10_11.txt', PETUNJUK_TXT);
+
+      const buffer = await zip.generateAsync({
+        type: 'nodebuffer',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 },
+      });
+
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', 'attachment; filename="eFaktur_Converter_Portable_WinXP_7_10_11.zip"');
+      res.send(buffer);
+    } catch (err: any) {
+      console.error('Portable zip generation error:', err);
+      res.status(500).json({ error: 'Gagal membuat file zip: ' + err.message });
+    }
   });
 
   // Server-side PDF extraction endpoint (reliable fallback for all browsers)

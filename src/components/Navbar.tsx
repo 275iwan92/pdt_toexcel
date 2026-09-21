@@ -1,13 +1,19 @@
 import React from 'react';
-import { FileSpreadsheet, RotateCcw, FolderSync } from 'lucide-react';
+import { FileSpreadsheet, RotateCcw, FolderSync, Laptop } from 'lucide-react';
 
 interface NavbarProps {
   onLoadSamples: () => void;
   onClearAll: () => void;
   totalInvoices: number;
+  onOpenPortableModal?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onLoadSamples, onClearAll, totalInvoices }) => {
+export const Navbar: React.FC<NavbarProps> = ({
+  onLoadSamples,
+  onClearAll,
+  totalInvoices,
+  onOpenPortableModal,
+}) => {
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-2xs">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -31,6 +37,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onLoadSamples, onClearAll, total
         </div>
 
         <div className="flex items-center gap-2.5">
+          {onOpenPortableModal && (
+            <button
+              onClick={onOpenPortableModal}
+              type="button"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 border border-slate-300 rounded-lg transition-all shadow-2xs cursor-pointer"
+              title="Download Aplikasi Portable untuk Windows XP / 7 / 10 / 11 (Deploy di Klien)"
+            >
+              <Laptop className="w-3.5 h-3.5 text-emerald-600" />
+              <span>App Portable (.zip)</span>
+            </button>
+          )}
+
           <button
             onClick={onLoadSamples}
             type="button"

@@ -266,9 +266,12 @@ export async function createFakturWorkbook({ category, fakturs }: GenerateExcelO
   // Add data rows to Rekap Faktur
   for (const f of fakturs) {
     const cleanNoFaktur = String(f.nomorFaktur || '').trim();
-    const hj = f.hargaJualTotal || 0;
+    const itemsHjSum = f.items && f.items.length > 0
+      ? f.items.reduce((s, it) => s + (it.hargaJual || it.qty * it.hargaSatuan), 0)
+      : 0;
+    const hj = (f.hargaJualTotal && f.hargaJualTotal > 1) ? f.hargaJualTotal : (itemsHjSum || f.dpp || 0);
     const pot = f.potonganHargaTotal || 0;
-    const hjNett = f.hargaJualNett || (hj - pot);
+    const hjNett = (f.hargaJualNett && f.hargaJualNett > 1) ? f.hargaJualNett : (hj - pot);
     const um = f.uangMuka || 0;
     const dppVal = f.dpp || 0;
     const dppNl = f.dppNilaiLain || 0;

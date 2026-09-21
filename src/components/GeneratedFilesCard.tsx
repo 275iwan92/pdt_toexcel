@@ -8,10 +8,12 @@ import {
   RotateCcw,
   Sparkles,
   Info,
+  FileText,
 } from 'lucide-react';
 import { FakturPajakData } from '../utils/fakturParser';
 import { createFakturWorkbook, downloadWorkbook } from '../utils/excelGenerator';
 import { createBatchZip, downloadBlob } from '../utils/zipExporter';
+import { generateDetailCsv, generateRekapCsv, downloadCsv } from '../utils/csvExporter';
 
 interface GeneratedFilesCardProps {
   invoices: FakturPajakData[];
@@ -293,19 +295,53 @@ export const GeneratedFilesCard: React.FC<GeneratedFilesCardProps> = ({ invoices
                 </div>
 
                 {/* Download Button */}
-                <button
-                  type="button"
-                  onClick={() => handleDownloadSingle(group)}
-                  disabled={downloadingFile === group.fileName}
-                  className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs ${group.colorScheme.button} disabled:opacity-50`}
-                >
-                  <Download className="w-4 h-4" />
-                  <span>
-                    {downloadingFile === group.fileName
-                      ? 'Sedang Memproses Excel...'
-                      : `Download ${group.fileName}`}
-                  </span>
-                </button>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadSingle(group)}
+                    disabled={downloadingFile === group.fileName}
+                    className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs ${group.colorScheme.button} disabled:opacity-50`}
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>
+                      {downloadingFile === group.fileName
+                        ? 'Sedang Memproses Excel...'
+                        : `Download ${group.fileName}`}
+                    </span>
+                  </button>
+
+                  {/* CSV Alternative for Large Datasets (>50k - 350k rows) */}
+                  <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between gap-2 text-xs">
+                    <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+                      <FileText className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Format CSV (Data Masif):</span>
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const csv = generateDetailCsv(group.invoices);
+                          downloadCsv(csv, `${isBeli ? 'fakturbeli' : 'fakturjual'}_detail_barang.csv`);
+                        }}
+                        className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-100 active:bg-slate-200 border border-slate-300 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                        title="Download CSV Sheet 1 (Detail Barang) - Sangat cepat & hemat memori"
+                      >
+                        CSV Detail
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const csv = generateRekapCsv(group.invoices, group.category);
+                          downloadCsv(csv, `${isBeli ? 'fakturbeli' : 'fakturjual'}_rekap_faktur.csv`);
+                        }}
+                        className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-100 active:bg-slate-200 border border-slate-300 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                        title="Download CSV Sheet 2 (Rekap Faktur) - Sangat cepat & hemat memori"
+                      >
+                        CSV Rekap
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             );
           })}
