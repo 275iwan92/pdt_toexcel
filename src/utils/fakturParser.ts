@@ -103,7 +103,10 @@ export function parseIdrNumber(valStr: string | null | undefined): number {
 export function cleanNpwp(npwpStr: string | null | undefined): string {
   if (!npwpStr) return '';
   const digits = npwpStr.replace(/\D/g, '');
-  // Keep first 16 or 15 digits
+  // Keep first 16 or 15 digits (handles trailing 000000 branch suffixes)
+  if (digits.length > 16) {
+    return digits.substring(0, 16);
+  }
   return digits;
 }
 
@@ -244,83 +247,249 @@ export function parseFakturText(text: string, fileName: string = '', categoryHin
   // Calculate hargaJualNett for Pembelian
   const hargaJualNett = hargaJualTotal - potonganHargaTotal;
 
-  // 6. Items parsing
-  const items: FakturItem[] = [];
-  
-  // Find item table chunk: between "Nama Barang Kena Pajak" and "Harga Jual / Penggantian"
-  const tableStartIndex = normalized.indexOf('Nama Barang Kena Pajak');
-  const tableEndIndex = normalized.lastIndexOf('Harga Jual / Penggantian');
+  // 6. Robust Multi-Page Items Parsing Algorithm
+  // Patterns for repeating table headers/footers in multi-page e-Faktur
+  const PAGE_HEADER_FOOTER_PATTERNS = [
+    /^Faktur\s+Pajak/i,
+    /^Kode\s+dan\s+Nomor\s+Seri/i,
+    /^Pengusaha\s+Kena\s+Pajak/i,
+    /^Pembeli\s+Barang\s+Kena\s+Pajak/i,
+    /^Nama\s*:/i,
+    /^Alamat\s*:/i,
+    /^NPWP\s*:/i,
+    /^NIK\s*:/i,
+    /^Nomor\s+Paspor\s*:/i,
+    /^Identitas\s+Lain\s*:/i,
+    /^Email\s*:/i,
+    /^No\.?\s*(?:Kode\s*Barang)?/i,
+    /^Kode\s*(?:Barang)?/i,
+    /^Barang\s*\/\s*Jasa/i,
+    /^Nama\s+Barang\s+Kena\s+Pajak/i,
+    /^Harga\s+Jual\s*\/\s*Penggantian/i,
+    /^Uang\s+Muka\s*\/\s*Termin/i,
+    /^\(Rp\)/i,
+    /^Halaman\s+\d+/i,
+    /^Page\s+\d+/i,
+    /^\d+\s+(?:dari|of)\s+\d+/i,
+    /^Lembar\s+ke/i,
+    /^Untuk\s*:/i,
+    /^Salinan\b/i,
+    /^Ditandatangani\s+secara\s+elektronik/i,
+    /^(?:KOTA|KAB\.?|KABUPATEN|JAKARTA|SURABAYA|SIDOARJO|SEMARANG|MEDAN|BANDUNG|BEKASI|TANGERANG)\s*,?\s*\d{1,2}\s+[A-Za-z]+\s+\d{4}/i,
+    /^\(Referensi:[^\)]*\)/i,
+    /^Referensi\s*:/i,
+    /^#\d{15,22}/,
+    /^(?:Potongan\s*Harga|PPnBM)/i,
+  ];
 
-  let tableText = '';
-  if (tableStartIndex !== -1 && tableEndIndex !== -1 && tableEndIndex > tableStartIndex) {
-    tableText = normalized.substring(tableStartIndex, tableEndIndex);
-  } else if (tableStartIndex !== -1) {
-    tableText = normalized.substring(tableStartIndex);
-  } else {
-    tableText = normalized;
+  // In Indonesian e-Faktur, every item calculation row has:
+  // "Rp <hargaSatuan> x <qty> <satuan>"
+  // We locate all occurrences of this invariant anchor, supporting x, X, and Unicode ×
+  const rateQtyRegex = /Rp\.?\s*([\d.,]+)\s*[xX\u00D7]\s*([\d.,]+)(?:\s+([A-Za-z0-9\/\-]+))?/gi;
+  interface MatchedRate {
+    index: number;
+    length: number;
+    hargaSatuan: number;
+    qty: number;
+    satuan: string;
   }
 
-  // In DJP e-faktur format, items follow this structured block:
-  // <item_number> [optional_code]
-  // <Nama Barang>
-  // Rp <harga_satuan> x <qty> <satuan>
-  // Potongan Harga = Rp <potongan>
-  // PPnBM (<ppnbm_rate>%) = Rp <ppnbm>
-  // <harga_jual>
-  
-  // Regex strategy to split or match blocks
-  // Find all matches of: Rp <val> x <val> <unit>
-  const itemPattern = /(\d+)\s+([0-9]{6}|[-0-9A-Za-z]+)?\s*[\n\r]+([^\n\r]+(?:[\n\r]+(?!(?:Rp\s*[\d.,]+\s*x|Potongan Harga|\d+\s+[0-9]{6}))[^\n\r]+)*)[\n\r]+\s*Rp\s*([\d.,]+)\s*x\s*([\d.,]+)\s*([A-Za-z0-9\/]+)?[\s\S]*?Potongan\s*Harga\s*=\s*Rp\s*([\d.,]+)[\s\S]*?PPnBM\s*\([^\)]*\)\s*=\s*Rp\s*([\d.,]+)[\s\S]*?([\d.,]+)(?=\s*(?:\d+\s+[0-9]{6}|\d+\s+[A-Z]|Harga\s+Jual\s*\/|$))/gi;
+  const rateMatches: MatchedRate[] = [];
+  let rMatch: RegExpExecArray | null;
+  while ((rMatch = rateQtyRegex.exec(normalized)) !== null) {
+    rateMatches.push({
+      index: rMatch.index,
+      length: rMatch[0].length,
+      hargaSatuan: parseIdrNumber(rMatch[1]),
+      qty: parseIdrNumber(rMatch[2]),
+      satuan: rMatch[3] || 'Piece',
+    });
+  }
 
-  let match;
-  while ((match = itemPattern.exec(tableText)) !== null) {
-    const no = parseInt(match[1], 10);
-    const kode = match[2] || '';
-    const rawNama = match[3].trim();
-    const hargaSatuan = parseIdrNumber(match[4]);
-    const qty = parseIdrNumber(match[5]);
-    const satuan = match[6] || '';
-    const potonganHarga = parseIdrNumber(match[7]);
-    const ppnbm = parseIdrNumber(match[8]);
-    const hargaJual = parseIdrNumber(match[9]);
+  const items: FakturItem[] = [];
+
+  // Find start of items section (after Pembeli header or "Nama Barang Kena Pajak")
+  const firstTableHdr = normalized.indexOf('Nama Barang Kena Pajak');
+  let tableSearchStart = firstTableHdr !== -1 ? firstTableHdr + 22 : 0;
+  
+  // Find end of items section (before summary totals)
+  // Anchored before Dikurangi Potongan / DPP summary
+  const summaryAnchor = normalized.search(/(?:Harga\s+Jual\s*\/\s*Penggantian[^\n]*\n\s*Dikurangi|Dikurangi\s+Potongan\s+Harga|Dasar\s+Pengenaan\s+Pajak)/i);
+  const tableSearchEnd = summaryAnchor !== -1 ? summaryAnchor : normalized.length;
+
+  let lastItemEndIndex = tableSearchStart;
+
+  for (let i = 0; i < rateMatches.length; i++) {
+    const currentRate = rateMatches[i];
+    const nextRate = rateMatches[i + 1];
+
+    // The text preceding this rate line contains the item index, code, and product name
+    const precedingChunk = normalized.substring(lastItemEndIndex, currentRate.index);
+
+    // Filter lines in preceding chunk
+    const rawLines = precedingChunk.split('\n').map(l => l.trim()).filter(Boolean);
+    const candidateLines: string[] = [];
+
+    for (const line of rawLines) {
+      // Check if line matches known header/footer
+      const isHdr = PAGE_HEADER_FOOTER_PATTERNS.some(p => p.test(line));
+      if (isHdr) continue;
+
+      // Check if line is purely a numeric currency amount or trailing item total (e.g. "638.000,00", "471,00", "0,00")
+      if (/^(?:Rp\.?\s*)?[\d.,]+$/.test(line)) {
+        continue;
+      }
+
+      // Skip address details leaking across page break
+      if (/^(?:RT\s*\d+|RW\s*\d+|JAWA\s+TIMUR|DKI\s+JAKARTA|\b\d{5}\b)$/i.test(line)) {
+        continue;
+      }
+
+      candidateLines.push(line);
+    }
+
+    let nomorUrut = i + 1;
+    let kodeBarang = '';
+    let namaBarang = '';
+
+    if (candidateLines.length > 0) {
+      // Find the line where the item actually starts: either "^(number) (code)" or "^(number)"
+      const itemStartIdx = candidateLines.findIndex((line) => {
+        const m = line.match(/^(\d{1,4})(?:\s+([0-9]{5,8}))?(?:\s+(.*))?$/);
+        return m !== null && parseInt(m[1], 10) <= 9999;
+      });
+
+      // Discard any preceding lines before the item start (e.g. signer names or page break text)
+      const validLines = itemStartIdx !== -1 ? candidateLines.slice(itemStartIdx) : candidateLines;
+
+      if (validLines.length > 0) {
+        const firstLine = validLines[0];
+        const numMatch = firstLine.match(/^(\d{1,4})(?:\s+([0-9]{5,8}))?(?:\s+(.*))?$/);
+        if (numMatch && parseInt(numMatch[1], 10) <= 9999) {
+          nomorUrut = parseInt(numMatch[1], 10);
+          kodeBarang = numMatch[2] || '';
+          const inlineName = numMatch[3] || '';
+          const remaining = validLines.slice(1);
+
+          if (inlineName) {
+            namaBarang = [inlineName, ...remaining].join(' ').trim();
+          } else if (remaining.length > 0) {
+            if (!kodeBarang && /^[0-9]{5,8}$/.test(remaining[0])) {
+              kodeBarang = remaining[0];
+              namaBarang = remaining.slice(1).join(' ').trim();
+            } else {
+              namaBarang = remaining.join(' ').trim();
+            }
+          }
+        } else {
+          namaBarang = validLines.join(' ').trim();
+        }
+      }
+    }
+
+    if (!namaBarang) {
+      namaBarang = 'Barang / Jasa Kena Pajak';
+    }
+
+    // Now look at text following currentRate up to next item or table end
+    const postChunkEnd = nextRate ? nextRate.index : tableSearchEnd;
+    const postChunk = normalized.substring(currentRate.index + currentRate.length, postChunkEnd);
+
+    // Extract Potongan Harga
+    let potonganHarga = 0;
+    const potMatch = postChunk.match(/Potongan\s*Harga\s*=\s*Rp\.?\s*([\d.,]+)/i);
+    if (potMatch) {
+      potonganHarga = parseIdrNumber(potMatch[1]);
+    }
+
+    // Extract PPnBM
+    let ppnbm = 0;
+    const bmMatch = postChunk.match(/PPnBM(?:\s*\([^\)]*\))?\s*=\s*Rp\.?\s*([\d.,]+)/i);
+    if (bmMatch) {
+      ppnbm = parseIdrNumber(bmMatch[1]);
+    }
+
+    // Extract line gross total (Harga Jual)
+    // Formula: Qty * Harga Satuan (as displayed in Attachment #2 Col L)
+    let hargaJual = currentRate.qty * currentRate.hargaSatuan;
+
+    // Check if e-Faktur explicitly lists the item total on the line after PPnBM
+    if (bmMatch && bmMatch.index !== undefined) {
+      const afterBm = postChunk.substring(bmMatch.index + bmMatch[0].length);
+      const explicitTotalMatch = afterBm.match(/^\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?|[0-9]+(?:,[0-9]{2})?)/m);
+      if (explicitTotalMatch) {
+        const parsedVal = parseIdrNumber(explicitTotalMatch[1]);
+        if (parsedVal > 0) {
+          hargaJual = parsedVal;
+        }
+      }
+    }
 
     items.push({
-      nomorUrut: isNaN(no) ? items.length + 1 : no,
-      kodeBarang: kode,
-      namaBarang: rawNama,
-      hargaSatuan,
-      qty,
-      satuan,
+      nomorUrut,
+      kodeBarang,
+      namaBarang,
+      hargaSatuan: currentRate.hargaSatuan,
+      qty: currentRate.qty,
+      satuan: currentRate.satuan,
       potonganHarga,
       ppnbm,
       hargaJual,
     });
-  }
 
-  // If standard item regex did not capture all items (e.g. slight OCR variation),
-  // let's do a line-by-line fallback parser
-  if (items.length === 0) {
-    const fallbackItems = parseItemsFallback(tableText);
-    if (fallbackItems.length > 0) {
-      items.push(...fallbackItems);
+    // Advance pointer
+    if (bmMatch && bmMatch.index !== undefined) {
+      lastItemEndIndex = currentRate.index + currentRate.length + bmMatch.index + bmMatch[0].length;
+    } else {
+      lastItemEndIndex = currentRate.index + currentRate.length;
     }
   }
 
-  // Determine category ('beli' or 'jual')
-  // By default:
-  // If user provided a categoryHint, respect it.
-  // Otherwise check filename or relativePath: "fakturbeli", "fakturjual", "beli", "jual".
-  // Or check if INDAL or company is Penjual vs Pembeli.
+  // Fallback: If no items found through rate anchors (e.g. lump-sum or OCR layout)
+  if (items.length === 0) {
+    const fallbackItems = parseItemsFallback(normalized);
+    if (fallbackItems.length > 0) {
+      items.push(...fallbackItems);
+    } else if (hargaJualTotal > 0) {
+      items.push({
+        nomorUrut: 1,
+        kodeBarang: '',
+        namaBarang: 'Barang / Jasa Kena Pajak',
+        hargaSatuan: hargaJualTotal,
+        qty: 1,
+        satuan: 'Piece',
+        potonganHarga: potonganHargaTotal,
+        ppnbm: ppnbmTotal,
+        hargaJual: hargaJualTotal,
+      });
+    }
+  }
+
+  // Determine category ('beli' vs 'jual')
+  // Automatically detects based on PKP identity and file hints:
+  // In INDAL's environment:
+  // If INDAL ALUMINIUM INDUSTRY TBK (NPWP 0011225356054000) is Penjual -> Faktur Jual (Penjualan)
+  // If INDAL is Pembeli -> Faktur Beli (Pembelian)
   let category: 'beli' | 'jual' = categoryHint || 'beli';
   const lowerFile = fileName.toLowerCase();
+
   if (lowerFile.includes('jual') || lowerFile.includes('penjualan')) {
     category = 'jual';
   } else if (lowerFile.includes('beli') || lowerFile.includes('pembelian')) {
     category = 'beli';
-  } else if (!categoryHint) {
-    // If company is Penjual, it's a Faktur Jual (sales invoice).
-    // If buyer is company or unknown, default to 'beli' or 'jual'.
-    // If Penjual has "INDAL" or similar prominent PKP, can infer.
+  } else {
+    const isSellerIndal =
+      namaPenjual.toUpperCase().includes('INDAL') ||
+      cleanNpwp(npwpPenjual).startsWith('0011225356054');
+    const isBuyerIndal =
+      namaPembeli.toUpperCase().includes('INDAL') ||
+      cleanNpwp(npwpPembeli).startsWith('0011225356054');
+
+    if (isSellerIndal && !isBuyerIndal) {
+      category = 'jual';
+    } else if (isBuyerIndal) {
+      category = 'beli';
+    }
   }
 
   return {
@@ -356,30 +525,30 @@ function parseItemsFallback(tableText: string): FakturItem[] {
   const items: FakturItem[] = [];
   const lines = tableText.split('\n').map(l => l.trim()).filter(Boolean);
 
-  let currentItem: Partial<FakturItem> | null = null;
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
     // Check if line matches: "Rp <satuan> x <qty> <unit>"
-    const rateQtyMatch = line.match(/Rp\s*([\d.,]+)\s*x\s*([\d.,]+)(?:\s*([A-Za-z0-9\/]+))?/i);
+    const rateQtyMatch = line.match(/Rp\.?\s*([\d.,]+)\s*x\s*([\d.,]+)(?:\s*([A-Za-z0-9\/]+))?/i);
     if (rateQtyMatch) {
-      if (!currentItem) currentItem = {};
-      currentItem.hargaSatuan = parseIdrNumber(rateQtyMatch[1]);
-      currentItem.qty = parseIdrNumber(rateQtyMatch[2]);
-      currentItem.satuan = rateQtyMatch[3] || 'Piece';
-      
+      const hargaSatuan = parseIdrNumber(rateQtyMatch[1]);
+      const qty = parseIdrNumber(rateQtyMatch[2]);
+      const satuan = rateQtyMatch[3] || 'Piece';
+
+      let namaBarang = '';
+      let nomorUrut = items.length + 1;
+      let kodeBarang = '';
+
       // Look backward for product name
-      if (!currentItem.namaBarang && i > 0) {
-        let nameLines: string[] = [];
+      if (i > 0) {
+        const nameLines: string[] = [];
         let j = i - 1;
         while (j >= 0 && !lines[j].startsWith('Rp') && !lines[j].includes('Potongan Harga') && !lines[j].includes('Harga Jual')) {
           const l = lines[j];
-          // If line starts with a number (item index e.g. "1 848200" or "1")
-          const idxMatch = l.match(/^(\d+)(?:\s+([0-9]{5,8}))?\s*(.*)$/);
-          if (idxMatch) {
-            currentItem.nomorUrut = parseInt(idxMatch[1], 10);
-            currentItem.kodeBarang = idxMatch[2] || '';
+          const idxMatch = l.match(/^(\d{1,4})(?:\s+([0-9]{5,8}))?\s*(.*)$/);
+          if (idxMatch && parseInt(idxMatch[1], 10) <= 9999) {
+            nomorUrut = parseInt(idxMatch[1], 10);
+            kodeBarang = idxMatch[2] || '';
             if (idxMatch[3]) nameLines.unshift(idxMatch[3]);
             break;
           } else {
@@ -388,42 +557,36 @@ function parseItemsFallback(tableText: string): FakturItem[] {
           j--;
           if (i - j > 4) break;
         }
-        currentItem.namaBarang = nameLines.join(' ').trim();
+        namaBarang = nameLines.join(' ').trim();
       }
-      continue;
-    }
 
-    if (currentItem && line.includes('Potongan Harga')) {
-      const pMatch = line.match(/Potongan\s*Harga\s*=\s*Rp\s*([\d.,]+)/i);
-      currentItem.potonganHarga = pMatch ? parseIdrNumber(pMatch[1]) : 0;
-      continue;
-    }
+      // Look forward for Potongan and PPnBM
+      let potonganHarga = 0;
+      let ppnbm = 0;
+      let hargaJual = qty * hargaSatuan;
 
-    if (currentItem && line.includes('PPnBM')) {
-      const bmMatch = line.match(/PPnBM\s*\([^\)]*\)\s*=\s*Rp\s*([\d.,]+)/i);
-      currentItem.ppnbm = bmMatch ? parseIdrNumber(bmMatch[1]) : 0;
-      continue;
-    }
-
-    // Line with just numeric total for the item
-    if (currentItem && currentItem.hargaSatuan !== undefined && currentItem.hargaJual === undefined) {
-      const numMatch = line.match(/^([\d.,]+)$/);
-      if (numMatch && !line.includes(' ')) {
-        currentItem.hargaJual = parseIdrNumber(numMatch[1]);
-        // Push and reset
-        items.push({
-          nomorUrut: currentItem.nomorUrut || items.length + 1,
-          kodeBarang: currentItem.kodeBarang || '',
-          namaBarang: currentItem.namaBarang || 'Barang/Jasa',
-          hargaSatuan: currentItem.hargaSatuan || 0,
-          qty: currentItem.qty || 1,
-          satuan: currentItem.satuan || 'Piece',
-          potonganHarga: currentItem.potonganHarga || 0,
-          ppnbm: currentItem.ppnbm || 0,
-          hargaJual: currentItem.hargaJual || ((currentItem.hargaSatuan || 0) * (currentItem.qty || 1)),
-        });
-        currentItem = null;
+      for (let k = i + 1; k < Math.min(i + 5, lines.length); k++) {
+        if (lines[k].includes('Potongan Harga')) {
+          const pMatch = lines[k].match(/Potongan\s*Harga\s*=\s*Rp\.?\s*([\d.,]+)/i);
+          if (pMatch) potonganHarga = parseIdrNumber(pMatch[1]);
+        }
+        if (lines[k].includes('PPnBM')) {
+          const bmMatch = lines[k].match(/PPnBM(?:\s*\([^\)]*\))?\s*=\s*Rp\.?\s*([\d.,]+)/i);
+          if (bmMatch) ppnbm = parseIdrNumber(bmMatch[1]);
+        }
       }
+
+      items.push({
+        nomorUrut,
+        kodeBarang,
+        namaBarang: namaBarang || 'Barang/Jasa',
+        hargaSatuan,
+        qty,
+        satuan,
+        potonganHarga,
+        ppnbm,
+        hargaJual,
+      });
     }
   }
 

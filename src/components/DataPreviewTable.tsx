@@ -33,7 +33,7 @@ export const DataPreviewTable: React.FC<DataPreviewTableProps> = ({
   const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const [pageSize, setPageSize] = useState<number>(100);
 
   const countBeli = useMemo(() => invoices.filter((i) => i.category === 'beli').length, [invoices]);
   const countJual = useMemo(() => invoices.filter((i) => i.category === 'jual').length, [invoices]);
@@ -143,7 +143,7 @@ export const DataPreviewTable: React.FC<DataPreviewTableProps> = ({
 
       if (inv.items && inv.items.length > 0) {
         for (const it of inv.items) {
-          const itemHj = it.hargaJual || (it.qty * it.hargaSatuan - (it.potonganHarga || 0));
+          const itemHj = it.hargaJual || (it.qty * it.hargaSatuan);
           rows.push({
             invoiceId: inv.id,
             category: inv.category,
@@ -596,16 +596,34 @@ export const DataPreviewTable: React.FC<DataPreviewTableProps> = ({
       </div>
 
       {/* Pagination Footer */}
-      <div className="p-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-600">
-        <div>
-          Menampilkan {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, totalRows)} dari {totalRows} baris
+      <div className="p-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+        <div className="flex items-center gap-3">
+          <span>
+            Menampilkan <strong className="text-slate-800 font-semibold">{totalRows === 0 ? 0 : (page - 1) * pageSize + 1} - {Math.min(page * pageSize, totalRows)}</strong> dari <strong className="text-slate-800 font-semibold">{totalRows}</strong> baris data
+          </span>
+          <div className="flex items-center gap-1.5 ml-2 border-l border-slate-200 pl-3">
+            <span className="text-slate-400">Tampilkan:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+              className="px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 font-medium focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+            >
+              <option value={20}>20 baris</option>
+              <option value={50}>50 baris</option>
+              <option value={100}>100 baris (Lihat Semua 90)</option>
+              <option value={500}>500 baris</option>
+            </select>
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
             disabled={page <= 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+            className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 cursor-pointer transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -616,7 +634,7 @@ export const DataPreviewTable: React.FC<DataPreviewTableProps> = ({
             type="button"
             disabled={page >= totalPages}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+            className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 cursor-pointer transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
           </button>

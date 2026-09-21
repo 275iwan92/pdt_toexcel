@@ -86,7 +86,7 @@ export async function createFakturWorkbook({ category, fakturs }: GenerateExcelO
 
     if (f.items && f.items.length > 0) {
       for (const item of f.items) {
-        const itemHargaJual = item.hargaJual || (item.qty * item.hargaSatuan - (item.potonganHarga || 0));
+        const itemHargaJual = item.hargaJual || (item.qty * item.hargaSatuan);
         detailSheet.addRow([
           cleanNoFaktur,
           f.tanggalFaktur,
