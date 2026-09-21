@@ -7,34 +7,27 @@ export async function createBatchZip(
 ): Promise<Blob> {
   const zip = new JSZip();
 
-  // Group by category ('beli' vs 'jual') and bulanTahun (MMYYYY)
-  const grouped: Record<string, { category: 'beli' | 'jual'; bulanTahun: string; items: FakturPajakData[] }> = {};
+  const beliInvoices = fakturs.filter((f) => f.category === 'beli');
+  const jualInvoices = fakturs.filter((f) => f.category === 'jual');
 
-  for (const f of fakturs) {
-    const key = `${f.category}-${f.bulanTahun || 'unknown'}`;
-    if (!grouped[key]) {
-      grouped[key] = {
-        category: f.category,
-        bulanTahun: f.bulanTahun || 'unknown',
-        items: [],
-      };
-    }
-    grouped[key].items.push(f);
-  }
-
-  // Create an Excel file for each group
-  for (const key of Object.keys(grouped)) {
-    const group = grouped[key];
+  // Exactly 1 Excel file for all Faktur Beli
+  if (beliInvoices.length > 0) {
     const workbook = await createFakturWorkbook({
-      category: group.category,
-      fakturs: group.items,
+      category: 'beli',
+      fakturs: beliInvoices,
     });
     const buffer = await workbook.xlsx.writeBuffer();
-    const fileName = group.category === 'beli' 
-      ? `fakturbeli-${group.bulanTahun}.xlsx`
-      : `fakturjual-${group.bulanTahun}.xlsx`;
+    zip.file('fakturbeli.xlsx', buffer);
+  }
 
-    zip.file(fileName, buffer);
+  // Exactly 1 Excel file for all Faktur Jual
+  if (jualInvoices.length > 0) {
+    const workbook = await createFakturWorkbook({
+      category: 'jual',
+      fakturs: jualInvoices,
+    });
+    const buffer = await workbook.xlsx.writeBuffer();
+    zip.file('fakturjual.xlsx', buffer);
   }
 
   return await zip.generateAsync({ type: 'blob' });

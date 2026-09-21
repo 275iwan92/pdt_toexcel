@@ -1,16 +1,20 @@
 import React, { useRef, useState } from 'react';
-import { UploadCloud, FolderUp, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { UploadCloud, FolderUp, FileText, CheckCircle, AlertCircle, Loader2, RotateCcw } from 'lucide-react';
 
 interface UploadDropzoneProps {
   onFilesSelected: (files: File[], targetCategory?: 'beli' | 'jual') => Promise<void>;
   isProcessing: boolean;
   progress: { current: number; total: number; currentFileName?: string } | null;
+  totalInvoices?: number;
+  onReset?: () => void;
 }
 
 export const UploadDropzone: React.FC<UploadDropzoneProps> = ({
   onFilesSelected,
   isProcessing,
   progress,
+  totalInvoices = 0,
+  onReset,
 }) => {
   const [dragActiveBeli, setDragActiveBeli] = useState(false);
   const [dragActiveJual, setDragActiveJual] = useState(false);
@@ -59,23 +63,39 @@ export const UploadDropzone: React.FC<UploadDropzoneProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Top action helper bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-100/70 p-3 rounded-xl border border-slate-200 text-xs text-slate-600">
+      {/* Top helper and reset bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-100/80 p-3 rounded-xl border border-slate-200 text-xs text-slate-600">
         <div className="flex items-center gap-2">
-          <FolderUp className="w-4 h-4 text-emerald-600" />
+          <FolderUp className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>
-            Pilih atau seret folder <strong>FakturBeli</strong> atau <strong>FakturJual</strong> berisi file-file PDF Faktur Pajak.
+            Pilih folder atau beberapa file PDF. Seluruh PDF Beli akan otomatis digabung ke{' '}
+            <strong className="text-blue-700 font-mono">fakturbeli.xlsx</strong>, dan seluruh PDF Jual ke{' '}
+            <strong className="text-emerald-700 font-mono">fakturjual.xlsx</strong>.
           </span>
         </div>
+
         <div className="flex items-center gap-2">
+          {totalInvoices > 0 && onReset && (
+            <button
+              type="button"
+              disabled={isProcessing}
+              onClick={onReset}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold rounded-md border border-rose-300 shadow-2xs cursor-pointer disabled:opacity-50 transition-colors"
+              title="Kosongkan seluruh data PDF dan hasil Excel"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+              <span>Reset / Kosongkan ({totalInvoices})</span>
+            </button>
+          )}
+
           <button
             type="button"
             disabled={isProcessing}
             onClick={() => anyFolderInputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-md border border-slate-300 shadow-xs cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-md border border-slate-300 shadow-2xs cursor-pointer disabled:opacity-50 transition-colors"
           >
             <FolderUp className="w-3.5 h-3.5 text-slate-500" />
-            Upload Any Folder (Auto-Detect)
+            Upload Folder (Auto-Detect)
           </button>
           <input
             ref={anyFolderInputRef}
@@ -132,7 +152,7 @@ export const UploadDropzone: React.FC<UploadDropzoneProps> = ({
                 Folder / File: Faktur Beli (Pembelian)
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Output: <code className="text-blue-600 font-mono font-medium">fakturbeli-mmyyyy.xlsx</code>
+                Output: <code className="text-blue-700 font-mono font-bold">fakturbeli.xlsx</code> (1 file untuk seluruh PDF)
               </p>
             </div>
 
@@ -201,7 +221,7 @@ export const UploadDropzone: React.FC<UploadDropzoneProps> = ({
                 Folder / File: Faktur Jual (Penjualan)
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Output: <code className="text-emerald-700 font-mono font-medium">fakturjual-mmyyyy.xlsx</code>
+                Output: <code className="text-emerald-700 font-mono font-bold">fakturjual.xlsx</code> (1 file untuk seluruh PDF)
               </p>
             </div>
 

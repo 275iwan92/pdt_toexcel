@@ -21,6 +21,7 @@ import {
   FolderSync,
   Info,
   Layers,
+  RotateCcw,
 } from 'lucide-react';
 
 export default function App() {
@@ -29,6 +30,7 @@ export default function App() {
   const [progress, setProgress] = useState<{ current: number; total: number; currentFileName?: string } | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<FakturPajakData | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // Summary statistics
   const stats = useMemo(() => {
@@ -65,12 +67,13 @@ export default function App() {
     setTimeout(() => setStatusMessage(null), 4000);
   };
 
-  const handleClearAll = () => {
-    if (window.confirm('Hapus semua faktur yang sedang dimuat?')) {
-      setInvoices([]);
-      setStatusMessage('Semua data faktur telah dibersihkan.');
-      setTimeout(() => setStatusMessage(null), 3000);
-    }
+  const executeReset = () => {
+    setInvoices([]);
+    setSelectedInvoice(null);
+    setProgress(null);
+    setShowResetConfirm(false);
+    setStatusMessage('Data berhasil di-reset. Seluruh file PDF dan hasil preview Excel telah dikosongkan.');
+    setTimeout(() => setStatusMessage(null), 3500);
   };
 
   // Process uploaded PDF files
@@ -171,7 +174,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       <Navbar
         onLoadSamples={handleLoadSamples}
-        onClearAll={handleClearAll}
+        onClearAll={() => setShowResetConfirm(true)}
         totalInvoices={invoices.length}
       />
 
@@ -183,7 +186,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setStatusMessage(null)}
-              className="text-emerald-700 hover:text-emerald-950 text-xs font-bold ml-2"
+              className="text-emerald-700 hover:text-emerald-950 text-xs font-bold ml-2 cursor-pointer"
             >
               Tutup
             </button>
@@ -203,7 +206,7 @@ export default function App() {
                 </h2>
               </div>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Mendukung folder upload <strong>FakturBeli</strong> dan <strong>FakturJual</strong>. Output berupa file Excel per bulan (<code className="text-blue-700 font-semibold font-mono">fakturbeli-mmyyyy.xlsx</code> & <code className="text-emerald-700 font-semibold font-mono">fakturjual-mmyyyy.xlsx</code>) dengan 2 sheet wajib: <strong>Detail Barang</strong> dan <strong>Rekap Faktur</strong>.
+                Mendukung folder upload <strong>FakturBeli</strong> dan <strong>FakturJual</strong>. Output berupa 1 file Excel untuk seluruh PDF tipe Beli (<code className="text-blue-700 font-semibold font-mono">fakturbeli.xlsx</code>) dan 1 file Excel untuk seluruh PDF tipe Jual (<code className="text-emerald-700 font-semibold font-mono">fakturjual.xlsx</code>) dengan 2 sheet wajib: <strong>Detail Barang</strong> dan <strong>Rekap Faktur</strong>.
               </p>
             </div>
 
@@ -226,6 +229,8 @@ export default function App() {
           onFilesSelected={handleFilesSelected}
           isProcessing={isProcessing}
           progress={progress}
+          totalInvoices={invoices.length}
+          onReset={() => setShowResetConfirm(true)}
         />
 
         {/* Summary Stats Overview */}
@@ -278,12 +283,17 @@ export default function App() {
         )}
 
         {/* Generated Files Ready to Download */}
-        <GeneratedFilesCard invoices={invoices} />
+        <GeneratedFilesCard
+          invoices={invoices}
+          onReset={() => setShowResetConfirm(true)}
+        />
 
         {/* Interactive Data Preview Spreadsheet */}
         <DataPreviewTable
           invoices={invoices}
           onSelectInvoice={(inv) => setSelectedInvoice(inv)}
+          onReset={() => setShowResetConfirm(true)}
+          onLoadSamples={handleLoadSamples}
         />
       </main>
 
@@ -292,6 +302,41 @@ export default function App() {
         invoice={selectedInvoice}
         onClose={() => setSelectedInvoice(null)}
       />
+
+      {/* Reset Confirmation Modal */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="w-12 h-12 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1.5">
+              <h3 className="text-base font-bold text-slate-900">
+                Kosongkan Seluruh Data?
+              </h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Tindakan ini akan menghapus semua file PDF faktur yang sedang dimuat, mengosongkan tabel preview, serta mereset hasil file Excel (<strong>fakturbeli.xlsx</strong> & <strong>fakturjual.xlsx</strong>).
+              </p>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(false)}
+                className="flex-1 py-2 px-4 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={executeReset}
+                className="flex-1 py-2 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+              >
+                Ya, Kosongkan Data
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-4 mt-12">
