@@ -1,0 +1,6 @@
+{
+  "name": "Faktur Pajak PDF to Excel Converter",
+  "description": "Convert Indonesian Faktur Pajak PDFs (Faktur Beli & Faktur Jual) to Microsoft Excel with Detail Barang and Rekap Faktur sheets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
